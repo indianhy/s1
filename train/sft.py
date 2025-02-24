@@ -8,19 +8,21 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 from datasets import load_dataset, concatenate_datasets, DatasetDict
 import transformers
 import trl
+import torch
+import time
 
 @dataclass
 class TrainingConfig:
-    model_name: str = field(default="Qwen/Qwen2.5-32B-Instruct")
-    block_size: int = field(default=32768)
+    model_name: str = field(default="Qwen/Qwen2.5-1.5B-Instruct")
+    block_size: int = field(default=4096)
     wandb_project: Optional[str] = field(default="s1")
-    wandb_entity: Optional[str] = field(default="hashimoto-group")
+    # wandb_entity: Optional[str] = field(default="hashimoto-group")
     train_file_path: Optional[str] = field(default='simplescaling/s1K_tokenized')
     dagger: bool = field(default=False)
 
     def __post_init__(self):
         os.environ['WANDB_PROJECT'] = self.wandb_project
-        os.environ['WANDB_ENTITY'] = self.wandb_entity
+        # os.environ['WANDB_ENTITY'] = self.wandb_entity
 
 def train():
     # parsing input
@@ -38,7 +40,10 @@ def train():
                   "attn_implementation": "flash_attention_2", "use_cache": False}
         model = transformers.AutoModelForCausalLM.from_pretrained(config.model_name, **kwargs)
     else:
-        model = transformers.AutoModelForCausalLM.from_pretrained(config.model_name)
+        kwargs = {"device_map": "cuda", "torch_dtype": "auto",
+                  "attn_implementation": "flash_attention_2", 
+                  "use_cache": False}
+        model = transformers.AutoModelForCausalLM.from_pretrained(config.model_name, **kwargs)
 
     dataset = load_dataset(config.train_file_path)
 
@@ -73,7 +78,17 @@ def train():
         args=args,
         data_collator=collator
     )
-
+    device = torch.device('cuda:0')
+    free, total = torch.cuda.mem_get_info(device)
+    mem_used_MB = (total - free) / 1024 ** 2
+    print('################ Memory usage: ',mem_used_MB)
+    time.sleep(10)
+    device2 = torch.device('cuda:1')
+    free2, total2 = torch.cuda.mem_get_info(device2)
+    mem_used_MB2 = (total2 - free2) / 1024 ** 2
+    print('################ Memory usage: ',mem_used_MB2)
+    time.sleep(10)
+    print("######### Training Loop Started ###########")
     trainer.train()
     trainer.save_model(output_dir=args.output_dir)
     tokenizer.save_pretrained(args.output_dir)
